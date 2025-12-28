@@ -18,6 +18,7 @@ export interface Settings {
     webappPort?: number
     webappUrl?: string
     corsOrigins?: string[]
+    tunnelEnabled?: boolean
 }
 
 export function getSettingsFile(dataDir: string): string {

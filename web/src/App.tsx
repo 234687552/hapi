@@ -125,6 +125,17 @@ function AppInner() {
         queryClient.clear()
     }, [baseUrl, queryClient])
 
+    // Clean up URL params after successful auth (for direct access links)
+    useEffect(() => {
+        if (!token || !api) return
+        const url = new URL(window.location.href)
+        if (url.searchParams.has('server') || url.searchParams.has('token')) {
+            url.searchParams.delete('server')
+            url.searchParams.delete('token')
+            window.history.replaceState({}, '', url.toString())
+        }
+    }, [token, api])
+
     useEffect(() => {
         if (!api || !token) {
             pushPromptedRef.current = false

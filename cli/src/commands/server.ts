@@ -1,8 +1,8 @@
 import chalk from 'chalk'
 import type { CommandDefinition, CommandContext } from './types'
 
-function parseServerArgs(args: string[]): { host?: string; port?: string } {
-    const result: { host?: string; port?: string } = {}
+function parseServerArgs(args: string[]): { host?: string; port?: string; relay?: boolean } {
+    const result: { host?: string; port?: string; relay?: boolean } = {}
 
     for (let i = 0; i < args.length; i++) {
         const arg = args[i]
@@ -14,6 +14,10 @@ function parseServerArgs(args: string[]): { host?: string; port?: string } {
             result.host = arg.slice('--host='.length)
         } else if (arg.startsWith('--port=')) {
             result.port = arg.slice('--port='.length)
+        } else if (arg === '--relay') {
+            result.relay = true
+        } else if (arg === '--no-relay') {
+            result.relay = false
         }
     }
 
@@ -25,13 +29,16 @@ export const serverCommand: CommandDefinition = {
     requiresRuntimeAssets: false,
     run: async (context: CommandContext) => {
         try {
-            const { host, port } = parseServerArgs(context.commandArgs)
+            const { host, port, relay } = parseServerArgs(context.commandArgs)
 
             if (host) {
                 process.env.WEBAPP_HOST = host
             }
             if (port) {
                 process.env.WEBAPP_PORT = port
+            }
+            if (relay !== undefined) {
+                process.env.HAPI_RELAY = relay ? 'true' : 'false'
             }
 
             await import('../../../server/src/index')
