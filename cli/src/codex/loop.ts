@@ -7,12 +7,14 @@ import { codexRemoteLauncher } from './codexRemoteLauncher';
 import { ApiClient, ApiSessionClient } from '@/lib';
 import type { CodexCliOverrides } from './utils/codexCliOverrides';
 import type { CodexPermissionMode } from '@hapi/protocol/types';
+import type { CollaborationMode } from './appServerTypes';
 
 export type PermissionMode = CodexPermissionMode;
 
 export interface EnhancedMode {
     permissionMode: PermissionMode;
     model?: string;
+    collaborationMode?: CollaborationMode['mode'];
 }
 
 interface LoopOptions {

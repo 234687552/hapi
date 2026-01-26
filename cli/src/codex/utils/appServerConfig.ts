@@ -136,8 +136,14 @@ export function buildTurnStartParams(args: {
         params.sandboxPolicy = sandboxPolicy;
     }
 
+    const collaborationMode = args.mode?.collaborationMode;
     const model = args.overrides?.model ?? args.mode?.model;
-    if (model) {
+    if (collaborationMode) {
+        const settings = model ? { model } : undefined;
+        params.collaborationMode = settings
+            ? { mode: collaborationMode, settings }
+            : { mode: collaborationMode };
+    } else if (model) {
         params.model = model;
     }
 

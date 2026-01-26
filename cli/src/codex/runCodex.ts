@@ -42,7 +42,8 @@ export async function runCodex(opts: {
 
     const messageQueue = new MessageQueue2<EnhancedMode>((mode) => hashObject({
         permissionMode: mode.permissionMode,
-        model: mode.model
+        model: mode.model,
+        collaborationMode: mode.collaborationMode
     }));
 
     const codexCliOverrides = parseCodexCliOverrides(opts.codexArgs);
@@ -50,6 +51,7 @@ export async function runCodex(opts: {
 
     let currentPermissionMode: PermissionMode = opts.permissionMode ?? 'default';
     const currentModel = opts.model;
+    let currentCollaborationMode: EnhancedMode['collaborationMode'];
 
     const lifecycle = createRunnerLifecycle({
         session,
@@ -75,7 +77,8 @@ export async function runCodex(opts: {
 
         const enhancedMode: EnhancedMode = {
             permissionMode: messagePermissionMode ?? 'default',
-            model: currentModel
+            model: currentModel,
+            collaborationMode: currentCollaborationMode
         };
         const formattedText = formatMessageWithAttachments(message.content.text, message.content.attachments);
         messageQueue.push(formattedText, enhancedMode);
@@ -97,18 +100,36 @@ export async function runCodex(opts: {
         return parsed.data as PermissionMode;
     };
 
+    const resolveCollaborationMode = (value: unknown): EnhancedMode['collaborationMode'] => {
+        if (value === null) {
+            return undefined;
+        }
+        if (typeof value !== 'string') {
+            throw new Error('Invalid collaboration mode');
+        }
+        const trimmed = value.trim();
+        if (!trimmed) {
+            throw new Error('Invalid collaboration mode');
+        }
+        return trimmed as EnhancedMode['collaborationMode'];
+    };
+
     session.rpcHandlerManager.registerHandler('set-session-config', async (payload: unknown) => {
         if (!payload || typeof payload !== 'object') {
             throw new Error('Invalid session config payload');
         }
-        const config = payload as { permissionMode?: unknown };
+        const config = payload as { permissionMode?: unknown; collaborationMode?: unknown };
 
         if (config.permissionMode !== undefined) {
             currentPermissionMode = resolvePermissionMode(config.permissionMode);
         }
 
+        if (config.collaborationMode !== undefined) {
+            currentCollaborationMode = resolveCollaborationMode(config.collaborationMode);
+        }
+
         syncSessionMode();
-        return { applied: { permissionMode: currentPermissionMode } };
+        return { applied: { permissionMode: currentPermissionMode, collaborationMode: currentCollaborationMode } };
     });
 
     try {

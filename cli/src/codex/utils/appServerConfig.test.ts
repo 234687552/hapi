@@ -48,6 +48,17 @@ describe('appServerConfig', () => {
         expect(params.model).toBe('o3');
     });
 
+    it('puts collaboration mode in turn params with model settings', () => {
+        const params = buildTurnStartParams({
+            threadId: 'thread-1',
+            message: 'hello',
+            mode: { permissionMode: 'default', model: 'o3', collaborationMode: 'plan' }
+        });
+
+        expect(params.collaborationMode).toEqual({ mode: 'plan', settings: { model: 'o3' } });
+        expect(params.model).toBeUndefined();
+    });
+
     it('applies CLI overrides for turns when permission mode is default', () => {
         const params = buildTurnStartParams({
             threadId: 'thread-1',
