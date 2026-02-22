@@ -40,3 +40,10 @@ execplan/
 
 # Generated npm bundle output (local)
 cli/npm/main/
+
+
+# Go specific
+bin/
+*.exe
+vendor/
+.serena/
