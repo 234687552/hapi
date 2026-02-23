@@ -1,6 +1,5 @@
 import type {
     AttachmentMetadata,
-    AuthResponse,
     DeleteUploadResponse,
     ListDirectoryResponse,
     FileReadResponse,
@@ -11,9 +10,6 @@ import type {
     MessagesResponse,
     ModelMode,
     PermissionMode,
-    PushSubscriptionPayload,
-    PushUnsubscribePayload,
-    PushVapidPublicKeyResponse,
     SlashCommandsResponse,
     SkillsResponse,
     SpawnResponse,
@@ -29,18 +25,6 @@ type ApiClientOptions = {
     onUnauthorized?: () => Promise<string | null>
 }
 
-type ErrorPayload = {
-    error?: unknown
-}
-
-function parseErrorCode(bodyText: string): string | undefined {
-    try {
-        const parsed = JSON.parse(bodyText) as ErrorPayload
-        return typeof parsed.error === 'string' ? parsed.error : undefined
-    } catch {
-        return undefined
-    }
-}
 
 export class ApiError extends Error {
     status: number
@@ -122,60 +106,8 @@ export class ApiClient {
         return await res.json() as T
     }
 
-    async authenticate(auth: { initData: string } | { accessToken: string }): Promise<AuthResponse> {
-        const res = await fetch(this.buildUrl('/api/auth'), {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify(auth)
-        })
-
-        if (!res.ok) {
-            const body = await res.text().catch(() => '')
-            const code = parseErrorCode(body)
-            const detail = body ? `: ${body}` : ''
-            throw new ApiError(`Auth failed: HTTP ${res.status} ${res.statusText}${detail}`, res.status, code, body || undefined)
-        }
-
-        return await res.json() as AuthResponse
-    }
-
-    async bind(auth: { initData: string; accessToken: string }): Promise<AuthResponse> {
-        const res = await fetch(this.buildUrl('/api/bind'), {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify(auth)
-        })
-
-        if (!res.ok) {
-            const body = await res.text().catch(() => '')
-            const code = parseErrorCode(body)
-            const detail = body ? `: ${body}` : ''
-            throw new ApiError(`Bind failed: HTTP ${res.status} ${res.statusText}${detail}`, res.status, code, body || undefined)
-        }
-
-        return await res.json() as AuthResponse
-    }
-
     async getSessions(): Promise<SessionsResponse> {
         return await this.request<SessionsResponse>('/api/sessions')
-    }
-
-    async getPushVapidPublicKey(): Promise<PushVapidPublicKeyResponse> {
-        return await this.request<PushVapidPublicKeyResponse>('/api/push/vapid-public-key')
-    }
-
-    async subscribePushNotifications(payload: PushSubscriptionPayload): Promise<void> {
-        await this.request('/api/push/subscribe', {
-            method: 'POST',
-            body: JSON.stringify(payload)
-        })
-    }
-
-    async unsubscribePushNotifications(payload: PushUnsubscribePayload): Promise<void> {
-        await this.request('/api/push/subscribe', {
-            method: 'DELETE',
-            body: JSON.stringify(payload)
-        })
     }
 
     async setVisibility(payload: VisibilityPayload): Promise<void> {

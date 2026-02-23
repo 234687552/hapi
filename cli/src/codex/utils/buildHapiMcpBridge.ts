@@ -44,6 +44,16 @@ export interface HapiMcpBridge {
  */
 export async function buildHapiMcpBridge(client: ApiSessionClient): Promise<HapiMcpBridge> {
     const happyServer = await startHappyServer(client);
+    if (happyServer.toolNames.length === 0) {
+        return {
+            server: {
+                url: happyServer.url,
+                stop: happyServer.stop
+            },
+            mcpServers: {}
+        };
+    }
+
     const bridgeCommand = getHappyCliCommand(['mcp', '--url', happyServer.url]);
 
     return {

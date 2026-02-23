@@ -2,7 +2,7 @@ import type { ChatBlock, ToolCallBlock, ToolPermission } from '@/chat/types'
 import type { TracedMessage } from '@/chat/tracer'
 import { createCliOutputBlock, isCliOutputText, mergeCliOutputBlocks } from '@/chat/reducerCliOutput'
 import { parseMessageAsEvent } from '@/chat/reducerEvents'
-import { ensureToolBlock, extractTitleFromChangeTitleInput, isChangeTitleToolName, type PermissionEntry } from '@/chat/reducerTools'
+import { ensureToolBlock, type PermissionEntry } from '@/chat/reducerTools'
 
 export function reduceTimeline(
     messages: TracedMessage[],
@@ -10,8 +10,6 @@ export function reduceTimeline(
         permissionsById: Map<string, PermissionEntry>
         groups: Map<string, TracedMessage[]>
         consumedGroupIds: Set<string>
-        titleChangesByToolUseId: Map<string, string>
-        emittedTitleChangeToolUseIds: Set<string>
     }
 ): { blocks: ChatBlock[]; toolBlocksById: Map<string, ToolCallBlock>; hasReadyEvent: boolean } {
     const blocks: ChatBlock[] = []
@@ -122,21 +120,6 @@ export function reduceTimeline(
                 }
 
                 if (c.type === 'tool-call') {
-                    if (isChangeTitleToolName(c.name)) {
-                        const title = context.titleChangesByToolUseId.get(c.id) ?? extractTitleFromChangeTitleInput(c.input)
-                        if (title && !context.emittedTitleChangeToolUseIds.has(c.id)) {
-                            context.emittedTitleChangeToolUseIds.add(c.id)
-                            blocks.push({
-                                kind: 'agent-event',
-                                id: `${msg.id}:${idx}`,
-                                createdAt: msg.createdAt,
-                                event: { type: 'title-changed', title },
-                                meta: msg.meta
-                            })
-                        }
-                        continue
-                    }
-
                     const permission = context.permissionsById.get(c.id)?.permission
 
                     const block = ensureToolBlock(blocks, toolBlocksById, c.id, {
@@ -167,21 +150,6 @@ export function reduceTimeline(
                 }
 
                 if (c.type === 'tool-result') {
-                    const title = context.titleChangesByToolUseId.get(c.tool_use_id) ?? null
-                    if (title) {
-                        if (!context.emittedTitleChangeToolUseIds.has(c.tool_use_id)) {
-                            context.emittedTitleChangeToolUseIds.add(c.tool_use_id)
-                            blocks.push({
-                                kind: 'agent-event',
-                                id: `${msg.id}:${idx}`,
-                                createdAt: msg.createdAt,
-                                event: { type: 'title-changed', title },
-                                meta: msg.meta
-                            })
-                        }
-                        continue
-                    }
-
                     const permissionEntry = context.permissionsById.get(c.tool_use_id)
                     const permissionFromResult = c.permissions ? ({
                         id: c.tool_use_id,

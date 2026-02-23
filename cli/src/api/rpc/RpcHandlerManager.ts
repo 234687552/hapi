@@ -6,6 +6,9 @@
 import { logger as defaultLogger } from '@/ui/logger'
 import type { RpcHandler, RpcHandlerConfig, RpcHandlerMap, RpcRequest } from './types'
 import type { Socket } from 'socket.io-client'
+import type { LocalTransport } from '../LocalTransport'
+
+type AnySocket = Socket | LocalTransport
 
 function safeJsonParse(value: string): unknown {
     try {
@@ -19,7 +22,7 @@ export class RpcHandlerManager {
     private handlers: RpcHandlerMap = new Map()
     private readonly scopePrefix: string
     private readonly logger: (message: string, data?: any) => void
-    private socket: Socket | null = null
+    private socket: AnySocket | null = null
 
     constructor(config: RpcHandlerConfig) {
         this.scopePrefix = config.scopePrefix
@@ -61,7 +64,7 @@ export class RpcHandlerManager {
         }
     }
 
-    onSocketConnect(socket: Socket): void {
+    onSocketConnect(socket: AnySocket): void {
         this.socket = socket
         for (const [prefixedMethod] of this.handlers) {
             socket.emit('rpc-register', { method: prefixedMethod })

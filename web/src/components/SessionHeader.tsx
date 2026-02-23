@@ -1,7 +1,6 @@
 import { useId, useMemo, useRef, useState } from 'react'
 import type { Session } from '@/types/api'
 import type { ApiClient } from '@/api/client'
-import { isTelegramApp } from '@/hooks/useTelegram'
 import { useSessionActions } from '@/hooks/mutations/useSessionActions'
 import { SessionActionMenu } from '@/components/SessionActionMenu'
 import { RenameSessionDialog } from '@/components/RenameSessionDialog'
@@ -11,9 +10,6 @@ import { useTranslation } from '@/lib/use-translation'
 function getSessionTitle(session: Session): string {
     if (session.metadata?.name) {
         return session.metadata.name
-    }
-    if (session.metadata?.summary?.text) {
-        return session.metadata.summary.text
     }
     if (session.metadata?.path) {
         const parts = session.metadata.path.split('/').filter(Boolean)
@@ -96,11 +92,6 @@ export function SessionHeader(props: {
             setMenuAnchorPoint({ x: rect.right, y: rect.bottom })
         }
         setMenuOpen((open) => !open)
-    }
-
-    // In Telegram, don't render header (Telegram provides its own)
-    if (isTelegramApp()) {
-        return null
     }
 
     return (

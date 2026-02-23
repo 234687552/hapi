@@ -54,14 +54,19 @@ describe('codexMcpConfig', () => {
     });
 
     describe('buildDeveloperInstructionsArg', () => {
+        it('returns empty args when instructions are empty', () => {
+            expect(buildDeveloperInstructionsArg('')).toEqual([]);
+            expect(buildDeveloperInstructionsArg('   ')).toEqual([]);
+        });
+
         it('builds developer instructions arg', () => {
-            const instructions = 'Call functions.hapi__change_title to set title.';
+            const instructions = 'Use concise developer instructions.';
 
             const args = buildDeveloperInstructionsArg(instructions);
 
             expect(args).toEqual([
                 '-c',
-                'developer_instructions="Call functions.hapi__change_title to set title."'
+                'developer_instructions="Use concise developer instructions."'
             ]);
         });
 

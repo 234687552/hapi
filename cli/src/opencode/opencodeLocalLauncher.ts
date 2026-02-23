@@ -3,9 +3,6 @@ import { opencodeLocal } from './opencodeLocal';
 import { OpencodeSession } from './session';
 import { ensureOpencodeHookPlugin } from './utils/hookPlugin';
 import { buildOpencodeEnv } from './utils/config';
-import { ensureOpencodeConfig } from './utils/opencodeConfig';
-import { TITLE_INSTRUCTION } from './utils/systemPrompt';
-import { buildHapiMcpBridge } from '@/codex/utils/buildHapiMcpBridge';
 import type { OpencodeHookEvent } from './types';
 import type { OpencodeHookServer } from './utils/startOpencodeHookServer';
 import { createOpencodeStorageScanner, type OpencodeStorageScannerHandle } from './utils/opencodeStorageScanner';
@@ -262,21 +259,6 @@ export async function opencodeLocalLauncher(
     const opencodeConfigDir = resolveOpencodeConfigDir(session);
     ensureOpencodeHookPlugin(opencodeConfigDir, hookUrl, opts.hookServer.token);
 
-    // Start the hapi MCP server for change_title support (optional feature)
-    let happyServer: { url: string; stop: () => void } | null = null;
-    let opencodeConfigPath: string | null = null;
-    try {
-        const bridge = await buildHapiMcpBridge(session.client);
-        happyServer = bridge.server;
-        logger.debug(`[opencode-local]: Started hapi MCP server at ${happyServer.url}`);
-
-        // Generate opencode.json config with MCP server and instructions
-        const { configPath } = ensureOpencodeConfig(opencodeConfigDir, bridge.mcpServers.hapi, TITLE_INSTRUCTION);
-        opencodeConfigPath = configPath;
-    } catch (error) {
-        logger.debug('[opencode-local]: Failed to start hapi MCP server (change_title will be unavailable)', error);
-    }
-
     const launcher = new BaseLocalLauncher({
         label: 'opencode-local',
         failureLabel: 'Local OpenCode process failed',
@@ -290,9 +272,6 @@ export async function opencodeLocalLauncher(
             env.HAPI_OPENCODE_HOOK_TOKEN = opts.hookServer.token;
             if (!env.OPENCODE_CONFIG_DIR) {
                 env.OPENCODE_CONFIG_DIR = opencodeConfigDir;
-            }
-            if (!env.OPENCODE_CONFIG && opencodeConfigPath) {
-                env.OPENCODE_CONFIG = opencodeConfigPath;
             }
 
             await opencodeLocal({
@@ -621,10 +600,6 @@ export async function opencodeLocalLauncher(
         session.removeHookEventHandler(handleHookEvent);
         if (storageScanner) {
             await storageScanner.cleanup();
-        }
-        if (happyServer) {
-            happyServer.stop();
-            logger.debug('[opencode-local]: Stopped hapi MCP server');
         }
     }
 }

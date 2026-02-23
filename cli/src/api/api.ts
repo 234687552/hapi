@@ -128,8 +128,8 @@ export class ApiClient {
         }
     }
 
-    sessionSyncClient(session: Session): ApiSessionClient {
-        return new ApiSessionClient(this.token, session)
+    sessionSyncClient(session: Session, transport?: import('./LocalTransport').LocalTransport): ApiSessionClient {
+        return new ApiSessionClient(this.token, session, transport)
     }
 
     machineSyncClient(machine: Machine): ApiMachineClient {

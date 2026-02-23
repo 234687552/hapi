@@ -82,8 +82,6 @@ function getEventKey(event: AgentEvent): string {
             return `switch:${event.mode}`
         case 'message':
             return `message:${event.message}`
-        case 'title-changed':
-            return `title:${event.title}`
         case 'limit-reached':
             return `limit:${event.endsAt}`
         case 'ready':

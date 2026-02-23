@@ -2,7 +2,7 @@
  * OpenCode configuration file generator.
  *
  * Generates opencode.json with MCP server configuration and instructions
- * for the hapi change_title tool.
+ * for hapi-provided guidance.
  */
 
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';

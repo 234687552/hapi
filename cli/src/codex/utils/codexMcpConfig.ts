@@ -71,6 +71,9 @@ export function buildMcpServerConfigArgs(
  * @returns Array of CLI arguments to pass to codex
  */
 export function buildDeveloperInstructionsArg(instructions: string): string[] {
+    if (instructions.trim().length === 0) {
+        return [];
+    }
     const escaped = escapeTomlString(instructions);
     return ['-c', `developer_instructions="${escaped}"`];
 }

@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { io, type Socket } from 'socket.io-client'
 
 type TerminalConnectionState =
     | { status: 'idle' }
@@ -14,26 +13,6 @@ type UseTerminalSocketOptions = {
     terminalId: string
 }
 
-type TerminalReadyPayload = {
-    terminalId: string
-}
-
-type TerminalOutputPayload = {
-    terminalId: string
-    data: string
-}
-
-type TerminalExitPayload = {
-    terminalId: string
-    code: number | null
-    signal: string | null
-}
-
-type TerminalErrorPayload = {
-    terminalId: string
-    message: string
-}
-
 export function useTerminalSocket(options: UseTerminalSocketOptions): {
     state: TerminalConnectionState
     connect: (cols: number, rows: number) => void
@@ -44,7 +23,7 @@ export function useTerminalSocket(options: UseTerminalSocketOptions): {
     onExit: (handler: (code: number | null, signal: string | null) => void) => void
 } {
     const [state, setState] = useState<TerminalConnectionState>({ status: 'idle' })
-    const socketRef = useRef<Socket | null>(null)
+    const wsRef = useRef<WebSocket | null>(null)
     const outputHandlerRef = useRef<(data: string) => void>(() => {})
     const exitHandlerRef = useRef<(code: number | null, signal: string | null) => void>(() => {})
     const sessionIdRef = useRef(options.sessionId)
@@ -52,6 +31,9 @@ export function useTerminalSocket(options: UseTerminalSocketOptions): {
     const tokenRef = useRef(options.token)
     const baseUrlRef = useRef(options.baseUrl)
     const lastSizeRef = useRef<{ cols: number; rows: number } | null>(null)
+    const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+    const reconnectAttemptsRef = useRef(0)
+    const intentionalCloseRef = useRef(false)
 
     useEffect(() => {
         sessionIdRef.current = options.sessionId
@@ -59,171 +41,87 @@ export function useTerminalSocket(options: UseTerminalSocketOptions): {
         baseUrlRef.current = options.baseUrl
     }, [options.sessionId, options.terminalId, options.baseUrl])
 
-    useEffect(() => {
-        tokenRef.current = options.token
-        const socket = socketRef.current
-        if (!socket) {
-            return
-        }
-        if (!options.token) {
-            if (socket.connected) {
-                socket.disconnect()
-            }
-            return
-        }
-        socket.auth = { token: options.token }
-        if (socket.connected) {
-            socket.disconnect()
-            socket.connect()
-        }
-    }, [options.token])
+    useEffect(() => { tokenRef.current = options.token }, [options.token])
 
-    const isCurrentTerminal = useCallback((terminalId: string) => terminalId === terminalIdRef.current, [])
+    const setErrorState = useCallback((message: string) => setState({ status: 'error', error: message }), [])
 
-    const emitCreate = useCallback((socket: Socket, size: { cols: number; rows: number }) => {
-        socket.emit('terminal:create', {
-            sessionId: sessionIdRef.current,
-            terminalId: terminalIdRef.current,
-            cols: size.cols,
-            rows: size.rows
-        })
-    }, [])
-
-    const setErrorState = useCallback((message: string) => {
-        setState({ status: 'error', error: message })
-    }, [])
-
-    const connect = useCallback((cols: number, rows: number) => {
-        lastSizeRef.current = { cols, rows }
+    const createConnection = useCallback((cols: number, rows: number) => {
         const token = tokenRef.current
         const sessionId = sessionIdRef.current
         const terminalId = terminalIdRef.current
+        const wsUrl = `${baseUrlRef.current.replace(/^http/, 'ws')}/ws/terminal/${sessionId}?token=${encodeURIComponent(token)}`
+        const ws = new WebSocket(wsUrl)
+        wsRef.current = ws
+        setState({ status: 'connecting' })
 
-        if (!token || !sessionId || !terminalId) {
+        ws.onopen = () => {
+            reconnectAttemptsRef.current = 0
+            const size = lastSizeRef.current ?? { cols, rows }
+            ws.send(JSON.stringify({ type: 'create', terminalId, cols: size.cols, rows: size.rows }))
+        }
+
+        ws.onmessage = (event) => {
+            try {
+                const msg = JSON.parse(event.data)
+                if (msg.terminalId !== terminalIdRef.current) return
+                if (msg.type === 'ready') setState({ status: 'connected' })
+                else if (msg.type === 'output') outputHandlerRef.current(msg.data)
+                else if (msg.type === 'exit') { exitHandlerRef.current(msg.code, msg.signal); setErrorState('Terminal exited.') }
+                else if (msg.type === 'error') setErrorState(msg.message)
+            } catch {}
+        }
+
+        ws.onerror = () => setErrorState('Connection error')
+
+        ws.onclose = () => {
+            if (intentionalCloseRef.current) { setState({ status: 'idle' }); return }
+            const attempts = reconnectAttemptsRef.current
+            if (attempts >= 10) { setErrorState('Disconnected'); return }
+            reconnectAttemptsRef.current++
+            const delay = Math.min(1000 * Math.pow(1.5, attempts), 5000)
+            reconnectTimerRef.current = setTimeout(() => {
+                if (!intentionalCloseRef.current) createConnection(cols, rows)
+            }, delay)
+        }
+    }, [setErrorState])
+
+    const connect = useCallback((cols: number, rows: number) => {
+        lastSizeRef.current = { cols, rows }
+        if (!tokenRef.current || !sessionIdRef.current || !terminalIdRef.current) {
             setErrorState('Missing terminal credentials.')
             return
         }
-
-        if (socketRef.current) {
-            const socket = socketRef.current
-            socket.auth = { token }
-            if (socket.connected) {
-                emitCreate(socket, { cols, rows })
-            } else {
-                socket.connect()
-            }
+        const ws = wsRef.current
+        if (ws?.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'create', terminalId: terminalIdRef.current, cols, rows }))
             setState({ status: 'connecting' })
             return
         }
-
-        const socket = io(`${baseUrlRef.current}/terminal`, {
-            auth: { token },
-            path: '/socket.io/',
-            reconnection: true,
-            reconnectionAttempts: Infinity,
-            reconnectionDelay: 1000,
-            reconnectionDelayMax: 5000,
-            transports: ['polling', 'websocket'],
-            autoConnect: false
-        })
-
-        socketRef.current = socket
-        setState({ status: 'connecting' })
-
-        socket.on('connect', () => {
-            const size = lastSizeRef.current ?? { cols, rows }
-            setState({ status: 'connecting' })
-            emitCreate(socket, size)
-        })
-
-        socket.on('terminal:ready', (payload: TerminalReadyPayload) => {
-            if (!isCurrentTerminal(payload.terminalId)) {
-                return
-            }
-            setState({ status: 'connected' })
-        })
-
-        socket.on('terminal:output', (payload: TerminalOutputPayload) => {
-            if (!isCurrentTerminal(payload.terminalId)) {
-                return
-            }
-            outputHandlerRef.current(payload.data)
-        })
-
-        socket.on('terminal:exit', (payload: TerminalExitPayload) => {
-            if (!isCurrentTerminal(payload.terminalId)) {
-                return
-            }
-            exitHandlerRef.current(payload.code, payload.signal)
-            setErrorState('Terminal exited.')
-        })
-
-        socket.on('terminal:error', (payload: TerminalErrorPayload) => {
-            if (!isCurrentTerminal(payload.terminalId)) {
-                return
-            }
-            setErrorState(payload.message)
-        })
-
-        socket.on('connect_error', (error) => {
-            const message = error instanceof Error ? error.message : 'Connection error'
-            setErrorState(message)
-        })
-
-        socket.on('disconnect', (reason) => {
-            if (reason === 'io client disconnect') {
-                setState({ status: 'idle' })
-                return
-            }
-            setErrorState(`Disconnected: ${reason}`)
-        })
-
-        socket.connect()
-    }, [emitCreate, setErrorState, isCurrentTerminal])
+        intentionalCloseRef.current = false
+        createConnection(cols, rows)
+    }, [createConnection, setErrorState])
 
     const write = useCallback((data: string) => {
-        const socket = socketRef.current
-        if (!socket || !socket.connected) {
-            return
-        }
-        socket.emit('terminal:write', { terminalId: terminalIdRef.current, data })
+        const ws = wsRef.current
+        if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'write', terminalId: terminalIdRef.current, data }))
     }, [])
 
     const resize = useCallback((cols: number, rows: number) => {
         lastSizeRef.current = { cols, rows }
-        const socket = socketRef.current
-        if (!socket || !socket.connected) {
-            return
-        }
-        socket.emit('terminal:resize', { terminalId: terminalIdRef.current, cols, rows })
+        const ws = wsRef.current
+        if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'resize', terminalId: terminalIdRef.current, cols, rows }))
     }, [])
 
     const disconnect = useCallback(() => {
-        const socket = socketRef.current
-        if (!socket) {
-            return
-        }
-        socket.removeAllListeners()
-        socket.disconnect()
-        socketRef.current = null
+        intentionalCloseRef.current = true
+        if (reconnectTimerRef.current) { clearTimeout(reconnectTimerRef.current); reconnectTimerRef.current = null }
+        const ws = wsRef.current
+        if (ws) { ws.onclose = null; ws.onerror = null; ws.onmessage = null; ws.onopen = null; ws.close(); wsRef.current = null }
         setState({ status: 'idle' })
     }, [])
 
-    const onOutput = useCallback((handler: (data: string) => void) => {
-        outputHandlerRef.current = handler
-    }, [])
+    const onOutput = useCallback((handler: (data: string) => void) => { outputHandlerRef.current = handler }, [])
+    const onExit = useCallback((handler: (code: number | null, signal: string | null) => void) => { exitHandlerRef.current = handler }, [])
 
-    const onExit = useCallback((handler: (code: number | null, signal: string | null) => void) => {
-        exitHandlerRef.current = handler
-    }, [])
-
-    return {
-        state,
-        connect,
-        write,
-        resize,
-        disconnect,
-        onOutput,
-        onExit
-    }
+    return { state, connect, write, resize, disconnect, onOutput, onExit }
 }

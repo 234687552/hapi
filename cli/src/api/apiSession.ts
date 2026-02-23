@@ -1,6 +1,7 @@
 import { EventEmitter } from 'node:events'
 import { randomUUID } from 'node:crypto'
 import { io, type Socket } from 'socket.io-client'
+import type { LocalTransport } from './LocalTransport'
 import axios from 'axios'
 import type { ZodType } from 'zod'
 import { logger } from '@/ui/logger'
@@ -40,7 +41,7 @@ export class ApiSessionClient extends EventEmitter {
     private metadataVersion: number
     private agentState: AgentState | null
     private agentStateVersion: number
-    private readonly socket: Socket<ServerToClientEvents, ClientToServerEvents>
+    private readonly socket: Socket<ServerToClientEvents, ClientToServerEvents> | LocalTransport
     private pendingMessages: UserMessage[] = []
     private pendingMessageCallback: ((message: UserMessage) => void) | null = null
     private lastSeenMessageSeq: number | null = null
@@ -52,7 +53,7 @@ export class ApiSessionClient extends EventEmitter {
     private agentStateLock = new AsyncLock()
     private metadataLock = new AsyncLock()
 
-    constructor(token: string, session: Session) {
+    constructor(token: string, session: Session, transport?: LocalTransport) {
         super()
         this.token = token
         this.sessionId = session.id
@@ -70,7 +71,7 @@ export class ApiSessionClient extends EventEmitter {
             registerCommonHandlers(this.rpcHandlerManager, this.metadata.path)
         }
 
-        this.socket = io(`${configuration.apiUrl}/cli`, {
+        this.socket = transport ?? io(`${configuration.apiUrl}/cli`, {
             auth: {
                 token: this.token,
                 clientType: 'session-scoped' as const,

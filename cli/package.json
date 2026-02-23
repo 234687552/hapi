@@ -19,6 +19,10 @@
     "bin/hapi.cjs",
     "NOTICE"
   ],
+  "exports": {
+    ".": "./src/index.ts",
+    "./agent": "./src/agent/index.ts"
+  },
   "imports": {
     "#embedded-assets": {
       "bun": "./src/runtime/embeddedAssets.bun.ts",

@@ -10,9 +10,13 @@ export async function codexLocalLauncher(session: CodexSession): Promise<'switch
     const resumeSessionId = session.sessionId;
     let scanner: Awaited<ReturnType<typeof createCodexSessionScanner>> | null = null;
 
-    // Start hapi hub for MCP bridge (same as remote mode)
+    // Start hapi MCP server/bridge (tools may be empty)
     const { server: happyServer, mcpServers } = await buildHapiMcpBridge(session.client);
-    logger.debug(`[codex-local]: Started hapi MCP bridge server at ${happyServer.url}`);
+    if (Object.keys(mcpServers).length > 0) {
+        logger.debug(`[codex-local]: Started hapi MCP bridge server at ${happyServer.url}`);
+    } else {
+        logger.debug('[codex-local]: hapi MCP bridge disabled (no exposed tools)');
+    }
 
     const handleSessionFound = (sessionId: string) => {
         session.onSessionFound(sessionId);

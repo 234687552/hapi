@@ -1,4 +1,5 @@
 import type { AgentState } from '@/api/types';
+import type { ApiSessionClient } from '@/api/apiSession';
 import { logger } from '@/ui/logger';
 import { MessageQueue2 } from '@/utils/MessageQueue2';
 import { hashObject } from '@/utils/deterministicJson';
@@ -24,20 +25,7 @@ function emitReadyIfIdle(props: {
     props.sendReady();
 }
 
-export async function runAgentSession(opts: {
-    agentType: string;
-    startedBy?: 'runner' | 'terminal';
-}): Promise<void> {
-    const initialState: AgentState = {
-        controlledByUser: false
-    };
-    const { session } = await bootstrapSession({
-        flavor: opts.agentType,
-        startedBy: opts.startedBy ?? 'terminal',
-        workingDirectory: process.cwd(),
-        agentState: initialState
-    });
-
+async function runAgentLoop(agentType: string, workingDirectory: string, session: ApiSessionClient): Promise<void> {
     session.updateAgentState((currentState) => ({
         ...currentState,
         controlledByUser: false
@@ -50,39 +38,29 @@ export async function runAgentSession(opts: {
         messageQueue.push(formattedText, {});
     });
 
-    const backend: AgentBackend = AgentRegistry.create(opts.agentType);
+    const backend: AgentBackend = AgentRegistry.create(agentType);
     await backend.initialize();
 
     const permissionAdapter = new PermissionAdapter(session, backend);
 
     const happyServer = await startHappyServer(session);
-    const bridgeCommand = getHappyCliCommand(['mcp', '--url', happyServer.url]);
-    const mcpServers = [
-        {
-            name: 'happy',
-            command: bridgeCommand.command,
-            args: bridgeCommand.args,
-            env: []
-        }
-    ];
+    const mcpServers = happyServer.toolNames.length > 0
+        ? (() => {
+            const bridgeCommand = getHappyCliCommand(['mcp', '--url', happyServer.url]);
+            return [{ name: 'happy', command: bridgeCommand.command, args: bridgeCommand.args, env: [] }];
+        })()
+        : [];
 
-    const agentSessionId = await backend.newSession({
-        cwd: process.cwd(),
-        mcpServers
-    });
+    const agentSessionId = await backend.newSession({ cwd: workingDirectory, mcpServers });
 
     let thinking = false;
     let shouldExit = false;
     let waitAbortController: AbortController | null = null;
 
     session.keepAlive(thinking, 'remote');
-    const keepAliveInterval = setInterval(() => {
-        session.keepAlive(thinking, 'remote');
-    }, 2000);
+    const keepAliveInterval = setInterval(() => { session.keepAlive(thinking, 'remote'); }, 2000);
 
-    const sendReady = () => {
-        session.sendSessionEvent({ type: 'ready' });
-    };
+    const sendReady = () => { session.sendSessionEvent({ type: 'ready' }); };
 
     const handleAbort = async () => {
         logger.debug('[ACP] Abort requested');
@@ -91,22 +69,16 @@ export async function runAgentSession(opts: {
         thinking = false;
         session.keepAlive(thinking, 'remote');
         sendReady();
-        if (waitAbortController) {
-            waitAbortController.abort();
-        }
+        if (waitAbortController) waitAbortController.abort();
     };
 
-    session.rpcHandlerManager.registerHandler('abort', async () => {
-        await handleAbort();
-    });
+    session.rpcHandlerManager.registerHandler('abort', async () => { await handleAbort(); });
 
     const handleKillSession = async () => {
         if (shouldExit) return;
         shouldExit = true;
         await permissionAdapter.cancelAll('Session killed');
-        if (waitAbortController) {
-            waitAbortController.abort();
-        }
+        if (waitAbortController) waitAbortController.abort();
     };
 
     registerKillSessionHandler(session.rpcHandlerManager, handleKillSession);
@@ -116,44 +88,25 @@ export async function runAgentSession(opts: {
             waitAbortController = new AbortController();
             const batch = await messageQueue.waitForMessagesAndGetAsString(waitAbortController.signal);
             waitAbortController = null;
-            if (!batch) {
-                if (shouldExit) {
-                    break;
-                }
-                continue;
-            }
+            if (!batch) { if (shouldExit) break; continue; }
 
-            const promptContent: PromptContent[] = [{
-                type: 'text',
-                text: batch.message
-            }];
-
+            const promptContent: PromptContent[] = [{ type: 'text', text: batch.message }];
             thinking = true;
             session.keepAlive(thinking, 'remote');
 
             try {
                 await backend.prompt(agentSessionId, promptContent, (message) => {
                     const converted = convertAgentMessage(message);
-                    if (converted) {
-                        session.sendCodexMessage(converted);
-                    }
+                    if (converted) session.sendCodexMessage(converted);
                 });
             } catch (error) {
                 logger.warn('[ACP] Prompt failed', error);
-                session.sendSessionEvent({
-                    type: 'message',
-                    message: 'Agent prompt failed. Check logs for details.'
-                });
+                session.sendSessionEvent({ type: 'message', message: 'Agent prompt failed. Check logs for details.' });
             } finally {
                 thinking = false;
                 session.keepAlive(thinking, 'remote');
                 await permissionAdapter.cancelAll('Prompt finished');
-                emitReadyIfIdle({
-                    queueSize: () => messageQueue.size(),
-                    shouldExit,
-                    thinking,
-                    sendReady
-                });
+                emitReadyIfIdle({ queueSize: () => messageQueue.size(), shouldExit, thinking, sendReady });
             }
         }
     } finally {
@@ -165,4 +118,26 @@ export async function runAgentSession(opts: {
         await backend.disconnect();
         happyServer.stop();
     }
+}
+
+export async function runAgentSessionWithSession(opts: {
+    agentType: string;
+    workingDirectory: string;
+    session: ApiSessionClient;
+}): Promise<void> {
+    return runAgentLoop(opts.agentType, opts.workingDirectory, opts.session);
+}
+
+export async function runAgentSession(opts: {
+    agentType: string;
+    startedBy?: 'runner' | 'terminal';
+}): Promise<void> {
+    const initialState: AgentState = { controlledByUser: false };
+    const { session } = await bootstrapSession({
+        flavor: opts.agentType,
+        startedBy: opts.startedBy ?? 'terminal',
+        workingDirectory: process.cwd(),
+        agentState: initialState
+    });
+    return runAgentLoop(opts.agentType, process.cwd(), session);
 }

@@ -21,6 +21,8 @@ export type SessionBootstrapOptions = {
     workingDirectory?: string
     tag?: string
     agentState?: AgentState | null
+    transport?: import('@/api/LocalTransport').LocalTransport
+    machineId?: string
 }
 
 export type SessionBootstrapResult = {
@@ -108,11 +110,13 @@ export async function bootstrapSession(options: SessionBootstrapOptions): Promis
 
     const api = await ApiClient.create()
 
-    const machineId = await getMachineIdOrExit()
-    await api.getOrCreateMachine({
-        machineId,
-        metadata: buildMachineMetadata()
-    })
+    let machineId: string
+    if (options.machineId) {
+        machineId = options.machineId
+    } else {
+        machineId = await getMachineIdOrExit()
+        await api.getOrCreateMachine({ machineId, metadata: buildMachineMetadata() })
+    }
 
     const metadata = buildSessionMetadata({
         flavor: options.flavor,
@@ -127,7 +131,7 @@ export async function bootstrapSession(options: SessionBootstrapOptions): Promis
         state: agentState
     })
 
-    const session = api.sessionSyncClient(sessionInfo)
+    const session = api.sessionSyncClient(sessionInfo, options.transport)
 
     await reportSessionStarted(sessionInfo.id, metadata)
 
